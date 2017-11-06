@@ -2,24 +2,26 @@
 This repo holds the detail of setting up qemu with nvme support for nvme target understanding and debugging.
 
 1. Setting up NVMe Target
-2. Setting up NVMe Host with NVMe-OF support (TBD)
-3. Access the target NVMe-OF target from Host (TBD)
-4. Run Wire-Shark (TBD)
+2. Setting up NVMe Host with NVMe-OF support
+3. Install Qemu packages for bridge Interface
+4. Use run.py for running the host and target interfaces
+5. Access the target NVMe-OF target from Host (TBD)
+6. Run Wire-Shark (TBD)
 
 ## 1. Setting up NVMe Target:-
-- Generate the image
+- Generate the rootfs image
   - Create 4GB raw file for rootfs, which will hold the rootfs.
     ```
-    dd if=/dev/zero of=rootfs.img bs=1M count=4096
+    dd if=/dev/zero of=rootfs-target.img bs=1M count=4096
     ```
   - Then format with ext4 filesystem, e.g. for ext4 with 4096 bytes blocks
     ```
-    mkfs.ext4 -b 4096 -F rootfs.img
+    mkfs.ext4 -b 4096 -F rootfs-target.img
     ```
   - Mount the filesystem
     ```
     mkdir ubuntu_xenial
-    mount -o loop rootfs.img ubuntu_xenial/
+    mount -o loop rootfs-target.img ubuntu_xenial/
     ``` 
   - Create root file system using debootstrap
     Install debootstrap
@@ -32,6 +34,11 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
     sudo chroot ubuntu_xenial/
     root@ubuntu:/# sudo passwd root
     ```
+  - Change the hostname as target
+    ```
+    root@ubuntu:/# cat /etc/hostname
+    target
+    ```
   - After changing password exit Ctrl-D
     unmount the rootfs
     ```
@@ -40,7 +47,7 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
 - Creating kernel image
   - Clone the linux kernel repo
     ```
-    git clone https://github.com/torvalds/linux.git 
+    git clone https://github.com/torvalds/linux.git
     cd linux/# git checkout v4.13OR
     ```
   - Download a tar ball from here :- https://www.kernel.org/
@@ -97,21 +104,21 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
   - Check the available kernel and rootfs image in your current folder
     ```
     # ls
-    blknvme  bzImage  linux-4.13.10  qemu-nvme  rootfs.img
+    blknvme  bzImage  linux-4.13.10  qemu-nvme  rootfs-target.img
     ```
   - Run following command for running the Qemu
     ```
-    # ./qemu-nvme/x86_64-softmmu/qemu-system-x86_64 -nographic -no-reboot -m 512M -smp cpus=2 --enable-kvm -kernel ./bzImage -drive file=./rootfs.img,if=ide -drive file=./blknvme,if=none,id=mynvme -device nvme,drive=mynvme,serial=deadbeef,namespaces=1,lver=1,nlbaf=5,lba_index=3,mdts=10,lnum_lun=4,lnum_pln=2 -append "console=ttyS0 root=/dev/sda rw panic=1 earlyprintk=serial,ttyS0,115200"
+    # ./qemu-nvme/x86_64-softmmu/qemu-system-x86_64 -nographic -no-reboot -m 512M -smp cpus=2 --enable-kvm -kernel ./bzImage -drive file=./rootfs-target.img,if=ide -drive file=./blknvme,if=none,id=mynvme -device nvme,drive=mynvme,serial=deadbeef,namespaces=1,lver=1,nlbaf=5,lba_index=3,mdts=10,lnum_lun=4,lnum_pln=2 -append "console=ttyS0 root=/dev/sda rw panic=1 earlyprintk=serial,ttyS0,115200"
     ```
     Once booted you can give root and password as set earlier and able to login
   - Check the nvme device availability
     ```
-    # root@ubuntu:~# ls -l /dev/nvme0n1
+    # root@target:~# ls -l /dev/nvme0n1
     brw-rw---- 1 root disk 259, 0 Oct 31 09:56 /dev/nvme0n1
     ```
   - For more details on nvme driver copy/install the nvme-cli to the rootfs and try the following
     ```
-    #root@ubuntu:/opt# ./nvme list
+    #root@target:/opt# ./nvme list
     Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
     ---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
     /dev/nvme0n1     deadbeef             QEMU NVMe Ctrl                           1           2.19  GB /   2.19  GB      4 KiB +  0 B   1.0
@@ -119,7 +126,7 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
 - DEBUGGING NVME Driver
   - Run the following command to start qemu with -s optio
     ```
-    #./qemu-nvme/x86_64-softmmu/qemu-system-x86_64 -nographic -no-reboot -m 512M -smp cpus=2 --enable-kvm -kernel ./bzImage -drive file=./rootfs.img,if=ide -drive file=./blknvme,if=none,id=mynvme -device nvme,drive=mynvme,serial=deadbeef,namespaces=1,lver=1,nlbaf=5,lba_index=3,mdts=10,lnum_lun=4,lnum_pln=2 -append "console=ttyS0 root=/dev/sda rw panic=1 earlyprintk=serial,ttyS0,115200" -s
+    #./qemu-nvme/x86_64-softmmu/qemu-system-x86_64 -nographic -no-reboot -m 512M -smp cpus=2 --enable-kvm -kernel ./bzImage -drive file=./rootfs-target.img,if=ide -drive file=./blknvme,if=none,id=mynvme -device nvme,drive=mynvme,serial=deadbeef,namespaces=1,lver=1,nlbaf=5,lba_index=3,mdts=10,lnum_lun=4,lnum_pln=2 -append "console=ttyS0 root=/dev/sda rw panic=1 earlyprintk=serial,ttyS0,115200" -s
     ```
   - In another terminal run the following
     ```
@@ -150,6 +157,54 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
     #8  0x0000000000000000 in ?? ()
     (gdb)
     ```
-## 2. Setting up NVMe Host with NVMe-OF support (TBD)
+## 2. Setting up NVMe Host with NVMe-OF support
+- Generate rootfs image
+  - Using the first step above create another instance of rootfs image i.e rootfs-host.img.
+    ```
+    # ls
+    blknvme  bzImage  linux-4.13.10  qemu-nvme  rootfs-target.img rootfs-host.img
+    ```
+## 3. Install Qemu packages for bridge interface
+- Install Qemu packages
+    ```
+    sudo apt-get install qemu-kvm qemu virt-manager virt-viewer libvirt-bin
+    ```
+- Check the bridge Interface
+    The above packages will create a new user Libvirt Qemu and a new bridge interface in your system
+    ```
+    # ifconfig
+    virbr0    Link encap:Ethernet  HWaddr 00:00:00:00:00:00
+              inet addr:192.168.122.1  Bcast:192.168.122.255  Mask:255.255.255.0
+              UP BROADCAST MULTICAST  MTU:1500  Metric:1
+              RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+              TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+              collisions:0 txqueuelen:1000
+              RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+    ```
+## 4. Use run.py for running the host and target interfaces.
+  - run.py utility help
+    ```
+    # python run.py
+    usage: run.py [-h] [--nonet] [--nonvme] [-k KERNEL] [-r ROOTFS]
+                  [-qdir QEMUDIR] (--host | --target)
+    run.py: error: one of the arguments --host --target is required
+    ```
+  - Running host
+    ```
+    # sudo python ./run.py --host -qdir=/opt/repo/qemu/qemu-nvme/
+    ```
+  - Running target
+    ```
+    # sudo python ./run.py --target -qdir=/opt/repo/qemu/qemu-nvme/
+    ```
+  - Update the network interface in rootfs [target & host] so that it will restart everytime. [Note the ens3 interface name in your system]
+    ```
+    # cat /root/.bash_profile
+    ifconfig ens3 hw ether 52:54:00:12:34:57
+    /etc/init.d/networking restart
+    ```
+## 5. Access the target NVMe-OF target from Host (TBD)
 
-You can also refer [Kapil u NvmeOF](https://github.com/kapilupadhayay/Programs/tree/master/lab/nvmeof) for more details any Question you can write me at:- manishrma@gmail.com
+## 6. Run Wire-Shark (TBD)
+You can also refer [Kapil's NvmeOF Link](https://github.com/kapilupadhayay/Programs/tree/master/lab/nvmeof)
+For more details OR any Question you can write me at:- manishrma@gmail.com
