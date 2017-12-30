@@ -189,22 +189,235 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
                   [-qdir QEMUDIR] (--host | --target)
     run.py: error: one of the arguments --host --target is required
     ```
-  - Running host
+  - Running host [The -qdir is the directory of the nvme supported qemu we compile above]
     ```
     # sudo python ./run.py --host -qdir=/opt/repo/qemu/qemu-nvme/
+    ```
+    It will come up with the prompt
+    ```
+    Ubuntu 16.04 LTS host ttyS0
+
+    host login: root
+    Password:
     ```
   - Running target
     ```
     # sudo python ./run.py --target -qdir=/opt/repo/qemu/qemu-nvme/
     ```
-  - Update the network interface in rootfs [target & host] so that it will restart everytime. [Note the ens3 interface name in your system]
+    It will come up with the prompt
+    ```
+    Ubuntu 16.04 LTS host ttyS0
+
+    target login: root
+    Password:
+    ```
+  - Update the network interface in rootfs [target & host] so that it will restart everytime. [Note the ens3 interface name in your system and change mac address for host and target]
     ```
     # cat /root/.bash_profile
     ifconfig ens3 hw ether 52:54:00:12:34:57
     /etc/init.d/networking restart
     ```
-## 5. Access the target NVMe-OF target from Host (TBD)
+## 5. Access the target NVMe-OF target from Host
+  - Check the network ipaddress and interface in the host system
+    After running the host and target there will be a tap interface for each system
+    ```
+    tap1      Link encap:Ethernet  HWaddr fe:96:87:63:79:89
+              inet6 addr: fe80::fc96:87ff:fe63:7989/64 Scope:Link
+              UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+              RX packets:28 errors:0 dropped:0 overruns:0 frame:0
+              TX packets:77 errors:0 dropped:0 overruns:0 carrier:0
+              collisions:0 txqueuelen:1000
+              RX bytes:3468 (3.4 KB)  TX bytes:8508 (8.5 KB)
 
+    tap3      Link encap:Ethernet  HWaddr fe:10:a7:b6:05:7e
+              inet6 addr: fe80::fc10:a7ff:feb6:57e/64 Scope:Link
+              UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+              RX packets:15 errors:0 dropped:0 overruns:0 frame:0
+              TX packets:64 errors:0 dropped:0 overruns:0 carrier:0
+              collisions:0 txqueuelen:1000
+              RX bytes:1690 (1.6 KB)  TX bytes:7140 (7.1 KB)
+
+    virbr0    Link encap:Ethernet  HWaddr fe:10:a7:b6:05:7e
+              inet addr:192.168.122.1  Bcast:192.168.122.255  Mask:255.255.255.0
+              UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+              RX packets:43 errors:0 dropped:0 overruns:0 frame:0
+              TX packets:21 errors:0 dropped:0 overruns:0 carrier:0
+              collisions:0 txqueuelen:1000
+              RX bytes:4556 (4.5 KB)  TX bytes:3338 (3.3 KB)
+    ```
+  - Make sure you have loaded all of the below modules in target and host respt.
+    use the scripts *setup_target.sh and setup_host.sh* for loading and configuring the host and target system
+    > NOTE:- Use scp for copying the modules OR mounting the rootfs as explained above
+    List of Modules on Host side (in sequence)
+    ```
+    insmod  udp_tunnel.ko
+    insmod  ip6_udp_tunnel.ko
+    insmod  configfs.ko
+    insmod  ib_core.ko
+    insmod  nvme-core.ko
+    insmod  nvme.ko
+    insmod  nvme-fabrics.ko
+    insmod  crc32_generic.ko
+    insmod  rdma_rxe.ko
+    insmod  ib_cm.ko
+    insmod  iw_cm.ko
+    insmod  rdma_cm.ko
+    insmod  ib_uverbs.ko
+    insmod  rdma_ucm.ko
+    insmod  nvme-rdma.ko
+    ```
+    List of Modules on Target side (in sequence)
+    ```
+    insmod  udp_tunnel.ko
+    insmod  ip6_udp_tunnel.ko
+    insmod  configfs.ko
+    insmod  ib_core.ko
+    insmod  nvme-core.ko
+    insmod  nvme.ko
+    insmod  nvme-fabrics.ko
+    insmod  crc32_generic.ko
+    insmod  rdma_rxe.ko
+    insmod  ib_cm.ko
+    insmod  iw_cm.ko
+    insmod  rdma_cm.ko
+    insmod  ib_uverbs.ko
+    insmod  rdma_ucm.ko
+    insmod  nvmet.ko
+    insmod  nvmet-rdma.ko
+    ```
+
+  - Install the nvme cli on both host and target machines
+    ```
+    # apt-get install nvme-cli
+    ```
+  - Setup rdma core on both target and host side
+    > Note:- we are explicitly performing this as the package libibverb is not proper with the apt-get repo
+    > In case libibverb is already installed. Please remove the package.
+    ```
+    # apt-get install git build-essential cmake gcc libudev-dev libnl-3-dev libnl-route-3-dev ninja-build pkg-config
+    # git clone git://github.com/linux-rdma/rdma-core
+    # cd rdma-core
+    # ./build.sh
+    ```
+    Add below path to ~/.bashrc
+    export PATH=$PATH:/root/rdma-core/build/bin:/root/rdma-core/providers/rxe
+    ```
+    # echo $PATH
+    /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/media/rdma-core/build/bin:/media/rdma-core/providers/rxe
+    ```
+
+  - Setup RXE on target and host
+    Compile *rxe_cfg* on base system and copy to target and host.
+    Clone repo [librxe cfg](https://github.com/SoftRoCE/librxe-dev.git)
+    > Compile in your base system as it needs other dependencies i.e not present in the target/host filesystem
+    ```
+    # scp ./rxe_cfg root@<target/host ip>:/<path>/
+    ```
+    Create a new RXE device/interface by coupling it with an Ethernet interface (Run in both target and host)
+    > here ens3 is the network interface.
+    ```
+    # ./rxe_cfg add ens3
+    # ./rxe_cfg status
+       Name  Link  Driver      Speed  NMTU  IPv4_addr       RDEV  RMTU
+       ens3  yes   virtio_net         1500  192.168.122.91  rxe0  1024  (3)#
+    ```
+    Following command will show the devices
+    ```
+    # ibv_devices
+     device       node GUID
+     ------    ----------------
+     rxe0      505400fffe123456
+
+    ```
+
+  - Mount configfs (On both target and host)
+    ```
+    mount -t configfs none /sys/kernel/config
+    ```
+
+  - Configure Namespace on *Target*
+    Create nvmet-rdma subsystem (select any name)
+    > Using *mysubsystem* here
+    ```
+    # mkdir /sys/kernel/config/nvmet/subsystems/mysubsystem
+    # cd /sys/kernel/config/nvmet/subsystems/mysubsystem
+    ```
+    Allow any host to be connected to this target.
+    ```
+    # echo 1 > attr_allow_any_host
+    ```
+    Create a namespace inside the subsystem
+    ```
+    # mkdir namespaces/10
+    # cd namespaces/10
+    ```
+    Set the path to the NVMe device and enable the namespace
+    > device name /dev/nvme0n1
+    ```
+    # echo -n /dev/nvme0n1> device_path
+    ```
+    Create the NVMe port
+    ```
+    # mkdir /sys/kernel/config/nvmet/ports/1
+    # cd /sys/kernel/config/nvmet/ports/1
+    ```
+    Set the IP address on the network adapter
+    > The address is of nvme target. current system
+    ```
+    # echo 192.168.122.91 > addr_traddr
+    ```
+    Set other port configuration
+    ```
+    # echo rdma > addr_trtype
+    # echo 4420 > addr_trsvcid
+    # echo ipv4 > addr_adrfam
+    # cd /sys/kernel/config/nvmet/
+    # ln -s subsystems/mysubsystem/ ports/1/subsystems/
+    ```
+    Check if the port has been enabled
+    ```
+    # dmesg | grep "enabling port"
+      nvmet_rdma: enabling port 1 (192.168.122.91:4420)
+    ```
+  - After checking the RXE device on host as shown above Start NVME discovery from host.
+    > Here 192.168.122.91 is the target IP
+    ```
+    # nvme discover -t rdma -a 192.168.122.91 -s 4420
+
+      Discovery Log Number of Records 1, Generation counter 1
+      =====Discovery Log Entry 0======
+      trtype:  rdma
+      adrfam:  ipv4
+      subtype: nvme subsystem
+      treq:    not specified
+      portid:  1
+      trsvcid: 4420
+
+      subnqn:  mysubsystem
+      traddr:  192.168.122.91
+
+      rdma_prtype: not specified
+      rdma_qptype: connected
+      rdma_cms:    rdma-cm
+      rdma_pkey: 0x0000
+    ```
+  - Connect to the discovered subsystems using the subsystem.
+    ```
+    # nvme connect -t rdma -n mysubsystem -a 192.168.122.91 -s 4420
+    ```
+  - Verify by checking the available block device.
+    ```
+    # lsblk
+      NAME    MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+      sr0      11:0    1 1024M  0 rom
+      sda       8:0    0    4G  0 disk /
+      nvme0n1 259:0    0    8G  0 disk
+    ```
+  - For disconnection.
+    ```
+    # nvme disconnect -d /dev/nvme0n1
+    ```
 ## 6. Run Wire-Shark (TBD)
-You can also refer [Kapil's NvmeOF Link](https://github.com/kapilupadhayay/Programs/tree/master/lab/nvmeof)
+Special Thanks to Kapil Upadhayay, This wouldn't have been possible with out his help.
+Please refer to [Kapil's NvmeOF Link](https://github.com/kapilupadhayay/Programs/tree/master/lab/nvmeof) for more scripts.
 For more details OR any Question you can write me at:- manishrma@gmail.com
