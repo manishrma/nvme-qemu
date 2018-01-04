@@ -246,8 +246,7 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
               RX bytes:4556 (4.5 KB)  TX bytes:3338 (3.3 KB)
     ```
   - Make sure you have loaded all of the below modules in target and host respt.
-    use the scripts *setup_target.sh and setup_host.sh* for loading and configuring the host and target system
-    > NOTE:- Use scp for copying the modules OR mounting the rootfs as explained above
+    use the scripts **setup_target.sh and setup_host.sh** for loading and configuring the host and target system
     List of Modules on Host side (in sequence)
     ```
     insmod  udp_tunnel.ko
@@ -285,6 +284,7 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
     insmod  nvmet.ko
     insmod  nvmet-rdma.ko
     ```
+    > NOTE:- Use scp for copying the modules OR mounting the rootfs as explained above
 
   - Install the nvme cli on both host and target machines
     ```
@@ -306,7 +306,7 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
     /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/media/rdma-core/build/bin:/media/rdma-core/providers/rxe
     ```
 
-  - Setup RXE on target and host
+  - Setup RXE on target and host.
     Compile *rxe_cfg* on base system and copy to target and host.
     Clone repo [librxe cfg](https://github.com/SoftRoCE/librxe-dev.git)
     > Compile in your base system as it needs other dependencies i.e not present in the target/host filesystem
@@ -335,7 +335,7 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
     mount -t configfs none /sys/kernel/config
     ```
 
-  - Configure Namespace on *Target*
+  - Configure Namespace on **Target**
     Create nvmet-rdma subsystem (select any name)
     > Using *mysubsystem* here
     ```
@@ -418,6 +418,31 @@ This repo holds the detail of setting up qemu with nvme support for nvme target 
     # nvme disconnect -d /dev/nvme0n1
     ```
 ## 6. Run Wire-Shark (TBD)
+  - Install latest wireshark. NVMe-oF (over RDMA) was added in January 2017 to Version greater than 2.4.0rc1.
+    let's run the below command for installing and compiling wireshark.
+    Download wireshark 2.4.3 from [here](https://www.wireshark.org/download.html)
+    ```
+    # sudo apt-get build-dep wireshark
+    # sudo apt-get install build-essential checkinstall libcurl4-openssl-dev
+    # tar xaf wireshark-2.4.3.tar.xz
+    # cd wireshark-2.4.3
+    # ./configure
+    # make
+    # make install (OR run from the local directory)
+    ```
+  - Run the wireshark from the local directory on the virbr0 interface.
+    ```
+    # sudo ./wireshark -k -i virbr0
+    ```
+  - After running wireshark, start the trafic (discovery/ connect) on host.
+    ```
+    # nvme discover -t rdma -a 192.168.122.91 -s 4420
+    ```
+  - Check the NVMe RDMA packets in wireshark like this:
+    ![alt text](https://github.com/manishrma/nvme-qemu/blob/master/NVMeOF-RDMA.png "Wireshark output")
+
+Run the traffic and enjoy Debugging.
+
 Special Thanks to Kapil Upadhayay, This wouldn't have been possible with out his help.
 Please refer to [Kapil's NvmeOF Link](https://github.com/kapilupadhayay/Programs/tree/master/lab/nvmeof) for more scripts.
 For more details OR any Question you can write me at:- manishrma@gmail.com
